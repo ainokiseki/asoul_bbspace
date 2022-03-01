@@ -1,5 +1,9 @@
 # asoul_bbspace
 
+## networkx文档
+
+https://networkx.org/documentation/latest/_downloads/networkx_reference.pdf
+
 ## 配置方法
 
 要求python3.8及以上
