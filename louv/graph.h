@@ -7,12 +7,14 @@
 #include<random>
 #include<tuple>
 #include<concurrent_priority_queue.h>
+#include<concurrent_unordered_set.h>
+#include<concurrent_queue.h>
 #include<iostream>
 #include<fstream>
 using namespace std;
 
 using pq = concurrency::concurrent_priority_queue < pair<float, int>> ;
-
+using cq = concurrency::concurrent_queue<int>;
 class graph
 {
 public:
@@ -51,7 +53,7 @@ public:
 			clustermap[clusterlist[nodemap[b]]].total_in += w;
 
 		}
-		nodenum = g.size();
+		total_nodenum = g.size();
 
 		dre.seed(seed);
 
@@ -78,7 +80,7 @@ public:
 	};
 
 	int seed = 114514;
-	int nodenum;
+	int total_nodenum;
 	float total_weight;
 
 
@@ -158,12 +160,45 @@ public:
 		//update clusterlist
 		clusterlist[nodenum] = clustnum;
 	}
+	double calculate_self(int nodenum) {
 
-	void calculate_community(int nodenum,pq& q) {
+		int clustnum = clusterlist[nodenum];
+		auto clust_x = clustermap[clustnum];
+		double dic = 0;
+		double  outadd = 0;
+		for (auto& j : g[nodenum]) {
+			if (clusterlist[j.first] == clustnum) {
+				dic += j.second;
+				
+			}
+		}
+		for (auto& j : inlist[nodenum]) {
+			if (clusterlist[j] == clustnum) {
+				for (auto k : g[j]) {
+					if (k.first == nodenum) {
+						outadd += k.second;
+						break;
+					}
+				}
+			}
+		}
 
-		for (auto& i : clustermap) {
-			if (i.first == clusterlist[nodenum])continue;//do not test the cluster nodenum belongs to
-			int clustnum = i.first;
+		double delta_q = dic - (node_total_out[nodenum] * (clust_x.total_in+dic) + node_total_in[nodenum] * (clust_x.total_out+outadd)) / total_weight;
+		return delta_q;
+	}
+
+
+
+
+	void calculate_community(int nodenum,pq& q,cq &work_queue,double bst) {
+
+		while (!work_queue.empty()) {
+			int clustnum = -1;
+			while(clustnum==-1)
+			work_queue.try_pop(clustnum);
+
+
+
 			auto& clust_x = clustermap[clustnum];
 			//calculate d^C_i
 			double dic = 0;
@@ -172,8 +207,8 @@ public:
 					dic += j.second;
 				}
 			}
-			float delta_q = dic - (node_total_out[nodenum]* clust_x.total_in+node_total_in[nodenum]*clust_x.total_out) / total_weight;
-			if (delta_q > 0) {
+			double delta_q = dic - (node_total_out[nodenum] * clust_x.total_in + node_total_in[nodenum] * clust_x.total_out) / total_weight;
+			if (delta_q > bst) {
 				q.push(pair<float, int>(delta_q, clustnum));
 			}
 
@@ -183,8 +218,8 @@ public:
 	}
 
 	void louvain_one_step() {
-		vector<int>v(nodenum);
-		for (int i = 0; i < nodenum; i++)v[i] = i;
+		vector<int>v(total_nodenum);
+		for (int i = 0; i < total_nodenum; i++)v[i] = i;
 		shuffle(v.begin(), v.end(), dre);
 		while (true) {
 
@@ -192,7 +227,21 @@ public:
 			bool flg = false;
 			for (auto& i : v) {
 				pq q;
-				calculate_community(i, q);
+				double bst = max(calculate_self(i),0.0);
+				int cnum = clusterlist[i];
+				unordered_set<int> clustset;
+				for (auto j : g[i]) {
+					
+						clustset.insert(clusterlist[j.first]);
+					
+				}
+				if (clustset.find(cnum) != clustset.end())clustset.erase(cnum);
+				cq work_queue;
+				for (auto i : clustset)work_queue.push(i);
+
+				calculate_community(i, q, work_queue,bst);
+
+
 				if (!q.empty()) {
 					pair<float, int>x;
 					q.try_pop(x);
